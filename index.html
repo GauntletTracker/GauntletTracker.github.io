@@ -28,7 +28,7 @@
             <h1 class="text-xl font-bold tracking-wide text-white">Gauntlet Tracker</h1>
         </div>
         <div class="text-sm text-gray-400 bg-gray-900 px-3 py-1.5 rounded-md border border-gray-700">
-            🟢 Live Map (No Account Required)
+            🟢 Live Map (Firebase Powered)
         </div>
     </header>
 
@@ -89,28 +89,38 @@
         </div>
     </div>
 
-    <script>
-        // ==========================================
-        // CONFIGURATION & CONFIG PLACEHOLDERS
-        // ==========================================
-        const API_URL = "YOUR_WORKER_URL"; 
-        const TURNSTILE_SITE_KEY = "YOUR_SITE_KEY"; 
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getFirestore, collection, addDoc, getDocs } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
-        // Severity Color Matrix
+        // ==========================================
+        // CONFIGURATION PLACEHOLDERS
+        // ==========================================
+        const firebaseConfig = {
+            apiKey: "AIzaSyDQExvz_lCaNzJRauvIJWcDY1DshWd47Rc",
+            authDomain: "gauntlet-tracker.firebaseapp.com",
+            projectId: "gauntlet-tracker",
+            storageBucket: "gauntlet-tracker.firebasestorage.app",
+            messagingSenderId: "262469462714",
+            appId: "1:262469462714:web:666d56cd6b72f82b213083",
+      };
+
+        const TURNSTILE_SITE_KEY = "0x4AAAAAADhE8jLJPe2EVa2g"; 
+
+        // Initialize Firebase
+        let db = null;
+        if (firebaseConfig.apiKey !== "YOUR_FIREBASE_API_KEY") {
+            const app = initializeApp(firebaseConfig);
+            db = getFirestore(app);
+        }
+
+        // Color Setup
         const severityColors = {
-            1: '#3b82f6', // Blue
-            2: '#10b981', // Green
-            3: '#f59e0b', // Amber
-            4: '#f97316', // Orange
-            5: '#ef4444'  // Red
+            1: '#3b82f6', 2: '#10b981', 3: '#f59e0b', 4: '#f97316', 5: '#ef4444'
         };
 
-        // State variables
-        let map, drawnItems, drawControl;
-        let currentDraftLayer = null;
-        let turnstileWidgetId = null;
-
-        // Dom Elements
+        // State & DOM Elements
+        let map, drawnItems, drawControl, currentDraftLayer, turnstileWidgetId = null;
         const sidebar = document.getElementById('sidebar');
         const formContainer = document.getElementById('form-container');
         const detailsContainer = document.getElementById('details-container');
@@ -119,71 +129,47 @@
         const severityInput = document.getElementById('g-severity');
         const severityVal = document.getElementById('severity-val');
 
-        // ==========================================
-        // INITIALIZE MAP & PLUGINS
-        // ==========================================
+        // Initialize Application Map
         function initMap() {
-            // Default center at coordinates [0, 0] zoom level 2 if geolocation fails
             map = L.map('map', { zoomControl: false }).setView([37.7749, -122.4194], 12); 
-            
-            // Zoom controls layout adjustment
             L.control.zoom({ position: 'topleft' }).addTo(map);
 
-            // Dark Matter Tile Layer matching dark UI scheme
             L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
                 attribution: '&copy; OpenStreetMap &copy; CARTO'
             }).addTo(map);
 
-            // Layer for items created during session or pulled from API
             drawnItems = new L.FeatureGroup();
             map.addLayer(drawnItems);
 
-            // Initialize draw controls
             drawControl = new L.Control.Draw({
-                edit: false, // Keep MVP simple; no post-draw editing
+                edit: false,
                 draw: {
-                    polygon: {
-                        allowIntersection: false,
-                        shapeOptions: { color: '#f59e0b', weight: 3 }
-                    },
-                    circle: {
-                        shapeOptions: { color: '#f59e0b', weight: 3 }
-                    },
-                    polyline: false,
-                    rectangle: false,
-                    marker: false,
-                    circlemarker: false
+                    polygon: { allowIntersection: false, shapeOptions: { color: '#f59e0b', weight: 3 } },
+                    circle: { shapeOptions: { color: '#f59e0b', weight: 3 } },
+                    polyline: false, rectangle: false, marker: false, circlemarker: false
                 }
             });
             map.addControl(drawControl);
 
-            // Geolocation auto-centering
             if (navigator.geolocation) {
                 navigator.geolocation.getCurrentPosition(pos => {
                     map.setView([pos.coords.latitude, pos.coords.longitude], 13);
-                }, () => console.log("Location access denied. Defaulting view."));
+                });
             }
 
             setupEventHandlers();
             fetchGauntlets();
         }
 
-        // ==========================================
-        // INTERACTIVE ENGINE / EVENT HANDLERS
-        // ==========================================
         function setupEventHandlers() {
-            // Catch shape drawing actions
             map.on(L.Draw.Event.CREATED, function (e) {
-                clearDraft(); // Handle one pending submission at a time
-                
+                clearDraft();
                 currentDraftLayer = e.layer;
                 currentDraftLayer.setStyle({ color: severityColors[severityInput.value] });
                 drawnItems.addLayer(currentDraftLayer);
-
                 openFormMode();
             });
 
-            // Dynamic live severity update behavior
             severityInput.addEventListener('input', (e) => {
                 severityVal.textContent = e.target.value;
                 if (currentDraftLayer) {
@@ -191,27 +177,21 @@
                 }
             });
 
-            // Close sidebar UI
             closeSidebarBtn.addEventListener('click', () => {
                 closeSidebar();
                 clearDraft();
             });
 
-            // Submit handler
             gauntletForm.addEventListener('submit', handleFormSubmit);
         }
 
-        // ==========================================
-        // SIDEBAR STATE CONTROL
-        // ==========================================
         function openFormMode() {
             detailsContainer.classList.add('hidden');
             formContainer.classList.remove('hidden');
             sidebar.classList.remove('hidden');
             sidebar.style.transform = 'translateX(0)';
 
-            // Render Cloudflare Turnstile
-            if (TURNSTILE_SITE_KEY !== "YOUR_SITE_KEY") {
+            if (TURNSTILE_SITE_KEY !== "YOUR_CLOUDFLARE_SITE_KEY") {
                 if (turnstileWidgetId !== null) turnstile.reset(turnstileWidgetId);
                 else {
                     turnstileWidgetId = turnstile.render('#turnstile-container', {
@@ -228,9 +208,8 @@
             sidebar.classList.remove('hidden');
             sidebar.style.transform = 'translateX(0)';
 
-            // Fill details dynamic layout
             document.getElementById('view-name').textContent = properties.name;
-            document.getElementById('view-desc').textContent = properties.description || "No descriptions provided.";
+            document.getElementById('view-desc').textContent = properties.description || "No description provided.";
             document.getElementById('view-id').textContent = properties.id.substring(0, 8);
             document.getElementById('view-date').textContent = new Date(properties.created_at).toLocaleDateString();
             
@@ -254,9 +233,6 @@
             severityVal.textContent = '3';
         }
 
-        // ==========================================
-        // GEOMETRY DATA FORMATTERS (GeoJSON / Circle)
-        // ==========================================
         function parseLayerToGeometry(layer) {
             if (layer instanceof L.Circle) {
                 return {
@@ -282,11 +258,7 @@
                 });
             } else {
                 layer = L.geoJSON({ type: "Feature", geometry: geom }, {
-                    style: {
-                        color: severityColors[gauntlet.severity],
-                        fillOpacity: 0.3,
-                        weight: 2
-                    }
+                    style: { color: severityColors[gauntlet.severity], fillOpacity: 0.3, weight: 2 }
                 });
             }
 
@@ -300,16 +272,17 @@
         }
 
         // ==========================================
-        // NETWORK API OPERATIONS
+        // DATABASE DATA SYNC
         // ==========================================
         async function fetchGauntlets() {
-            if (API_URL === "YOUR_WORKER_URL") return; // Silent skip if unconfigured
+            if (!db) return; // Runs simulation if firebase is empty
             try {
-                const res = await fetch(`${API_URL}/api/gauntlets`);
-                const data = await res.json();
-                data.forEach(gauntlet => renderGeometryToMap(gauntlet));
+                const querySnapshot = await getDocs(collection(db, "gauntlets"));
+                querySnapshot.forEach((doc) => {
+                    renderGeometryToMap({ id: doc.id, ...doc.data() });
+                });
             } catch (err) {
-                console.error("Failed to load map infrastructure metrics:", err);
+                console.error("Database read error:", err);
             }
         }
 
@@ -318,57 +291,44 @@
             if (!currentDraftLayer) return;
 
             const payload = {
-                id: crypto.randomUUID(),
                 name: document.getElementById('g-name').value,
                 description: document.getElementById('g-desc').value,
                 severity: parseInt(severityInput.value),
-                geometry: JSON.stringify(parseLayerToGeometry(currentDraftLayer))
+                geometry: JSON.stringify(parseLayerToGeometry(currentDraftLayer)),
+                created_at: new Date().toISOString()
             };
 
-            // Inject Turnstile validation token token if present
-            if (TURNSTILE_SITE_KEY !== "YOUR_SITE_KEY") {
+            if (TURNSTILE_SITE_KEY !== "YOUR_CLOUDFLARE_SITE_KEY") {
                 const token = turnstile.getResponse(turnstileWidgetId);
                 if (!token) {
                     alert("Please complete the Cloudflare Turnstile challenge.");
                     return;
                 }
-                payload.cf_turnstile_token = token;
             }
 
-            if (API_URL === "YOUR_WORKER_URL") {
-                // Mock execution environment fallback
-                alert("Prototype Mode! Configuration API URL is missing.\n\nSimulated Object Payload data logged into development window console.");
-                console.log("Mock Outbound Payload Data:", payload);
+            if (!db) {
+                // Local simulation fallback if keys aren't added yet
+                alert("Simulating save locally! Fill out the Firebase variables to link real storage.");
+                payload.id = crypto.randomUUID();
                 currentDraftLayer.saved = true;
-                const mockResponseProperties = { ...payload, created_at: new Date().toISOString() };
-                currentDraftLayer.on('click', () => openDetailsMode(mockResponseProperties));
+                currentDraftLayer.on('click', () => openDetailsMode(payload));
                 closeSidebar();
                 return;
             }
 
             try {
-                const response = await fetch(`${API_URL}/api/gauntlets`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-
-                if (!response.ok) throw new Error("API transaction processing failure.");
-
+                const docRef = await addDoc(collection(db, "gauntlets"), payload);
                 currentDraftLayer.saved = true;
-                const freshSavedData = await response.json();
-                
-                // Re-bind click event to use real saved payload data instead of draft state
-                currentDraftLayer.on('click', () => openDetailsMode(freshSavedData));
-                
+                currentDraftLayer.on('click', () => openDetailsMode({ id: docRef.id, ...payload }));
                 closeSidebar();
             } catch (err) {
-                alert("Error submitting gauntlet. Check console configuration errors.");
+                alert("Error saving data direct to Firestore.");
                 console.error(err);
             }
         }
 
-        window.onload = initMap;
+        // Fire on Load
+        initMap();
     </script>
 </body>
 </html>
